@@ -36,34 +36,62 @@ def apply_custom_color(slide, color_hex):
 # 🧠 Generate Slide Content
 # -----------------------------
 def get_generated_content(topic, slides, theme, content_type, count):
-    if content_type == "bullets":
-        prompt = f"""
-        Generate exactly {slides} PowerPoint slides about "{topic}".
-        Each slide should have:
-        - Title: <title>
-        - Exactly {count} short, natural bullet points (max 2 lines each).
-        Use human-like simple wording. add summaries or intros.
-        Style: {theme}.
-        """
-    else:
-        prompt = f"""
-        Generate exactly {slides} PowerPoint slides about "{topic}".
-        Each slide should have:
-        - Title: <title>
-        - Exactly {count} short paragraphs (max 3 lines each). 
-        **Do NOT use bullet points.** Write natural paragraphs only.
-        Keep each paragraph concise, educational, and easy to read.
-        **Do not exceed 6 paragraphs per slide.**
-        Style: {theme}.
-        """
+    try:
+        if content_type == "bullets":
+            prompt = f"""
+            Generate exactly {slides} PowerPoint slides about "{topic}".
+            Each slide must have a heading like "Slide 1:", "Slide 2:" etc.
+            Each slide should contain:
+            - Title: <title>
+            - Exactly {count} short, natural bullet points (max 2 lines each)
+            Use clear, human-like wording. Keep bullets concise.
+            Style: {theme}.
+            """
+        else:
+            prompt = f"""
+            Generate exactly {slides} PowerPoint slides about "{topic}".
+            Each slide must have a heading like "Slide 1:", "Slide 2:" etc.
+            Each slide should contain:
+            - Title: <title>
+            - Exactly {count} short paragraphs (max 3 lines each)
+            Do NOT use bullet points.
+            Keep text concise and clear.
+            Style: {theme}.
+            """
 
-    response = model.generate_content(prompt)
-    text = getattr(response, "text", str(response))
+        response = model.generate_content(prompt)
+        text = getattr(response, "text", str(response))
 
-    clean_text = re.sub(r"[*#>\-]+", "", text)
-    clean_text = re.sub(r"(Bullet Points:|Visuals:|Content:|Points:)", "", clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
-    return clean_text.strip()
+        # Clean up formatting
+        clean_text = re.sub(r"[*#>\-]+", "", text)
+        clean_text = re.sub(r"(Bullet Points:|Visuals:|Content:|Points:)", "", clean_text, flags=re.IGNORECASE)
+        clean_text = re.sub(r"\n{3,}", "\n\n", clean_text)
+        clean_text = clean_text.strip()
+
+        # ✅ Split slides safely
+        slides_data = re.split(r"(?:Slide\s*\d+[:\-]?)", clean_text)
+        slides_data = [s.strip() for s in slides_data if s.strip()]
+
+        # If AI didn't label slides → auto split by bullet/paragraph count
+        if len(slides_data) != slides:
+            print("⚠️ Auto-splitting fallback triggered.")
+            lines = [line.strip() for line in clean_text.split("\n") if line.strip()]
+            chunk_size = max(1, len(lines) // slides)
+            slides_data = [
+                "\n".join(lines[i:i + chunk_size]) for i in range(0, len(lines), chunk_size)
+            ]
+            slides_data = slides_data[:slides]
+
+        # Reconstruct text with proper slide headers for downstream logic
+        reconstructed = ""
+        for i, slide_text in enumerate(slides_data, 1):
+            reconstructed += f"\nSlide {i}:\n{slide_text}\n"
+
+        return reconstructed.strip()
+
+    except Exception as e:
+        raise RuntimeError(f"AI generation failed: {str(e)}")
+
     
 # -----------------------------
 # 🧩 PowerPoint Builder
