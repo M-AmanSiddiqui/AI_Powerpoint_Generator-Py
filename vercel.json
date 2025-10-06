@@ -1,7 +1,7 @@
 {
   "version": 2,
   "functions": {
-    "api/generate_ppt.py": {
+    "api/main.py": {
       "runtime": "python3.11"
     }
   }
