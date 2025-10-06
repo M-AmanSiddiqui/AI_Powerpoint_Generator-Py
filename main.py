@@ -8,9 +8,17 @@ import re
 # -----------------------------
 # 🔑 API Key
 # -----------------------------
-genai.configure(api_key="AIzaSyBZjOkkpWeuMFxrdYfgxq5OAxLB7lexHDs")  # Replace with your Gemini API key
-model = genai.GenerativeModel("gemini-2.0-flash")
+from dotenv import load_dotenv
+import os
 
+load_dotenv()
+api_key = os.getenv("API_KEY")
+
+if not api_key:
+    raise ValueError("❌ API key not found! Please set it in your .env file")
+
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-2.0-flash")
 app = Flask(__name__)
 
 # -----------------------------
@@ -283,31 +291,46 @@ def index():
             @keyframes fadeIn { from {opacity:0;} to {opacity:1;} }
         </style>
 
-        <script>
-            function toggleFields(){
-                let t=document.querySelector('input[name="content_type"]:checked').value;
-                document.getElementById('bullet_count').style.display=(t==='bullets')?'block':'none';
-                document.getElementById('para_count').style.display=(t==='paragraphs')?'block':'none';
-            }
+       <script>
+    function toggleFields(){
+        let t=document.querySelector('input[name="content_type"]:checked').value;
+        document.getElementById('bullet_count').style.display=(t==='bullets')?'block':'none';
+        document.getElementById('para_count').style.display=(t==='paragraphs')?'block':'none';
+    }
 
-            function showLoading(){
-                document.getElementById('overlay').style.display='flex';
-                document.querySelector('#overlay p').textContent = "⚙️ Generating your PowerPoint... please wait ⏳";
-            }
+    function showLoading(){
+        document.getElementById('overlay').style.display='flex';
+        document.querySelector('#overlay p').textContent = "⚙️ Generating your PowerPoint... please wait ⏳";
+        
+        // After 6 seconds, check if download started successfully
+        setTimeout(checkDownload, 6000);
+    }
 
-            function showSuccess(){
-                document.getElementById('overlay').style.display='none';
-                document.getElementById('success').style.display='flex';
-                document.querySelector("form").reset();
+    async function checkDownload(){
+        try {
+            const res = await fetch('/done');
+            if (res.ok) {
+                showSuccess();
             }
+        } catch (err) {
+            console.log('Waiting for download to complete...');
+            setTimeout(checkDownload, 2000);
+        }
+    }
 
-            // trigger success after window regains focus post-download
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible' && document.getElementById('overlay').style.display==='flex'){
-                    setTimeout(showSuccess, 1000);
-                }
-            });
-        </script>
+    function showSuccess(){
+        document.getElementById('overlay').style.display='none';
+        document.getElementById('success').style.display='flex';
+        document.querySelector("form").reset();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && document.getElementById('overlay').style.display==='flex'){
+            setTimeout(showSuccess, 1000);
+        }
+    });
+</script>
+
     </head>
 
     <body>
@@ -363,12 +386,37 @@ def index():
             content = get_generated_content(topic, slides, "professional", content_type, count)
             pptx_file = create_ppt(content, topic, color, content_type)
 
+            if not pptx_file or not os.path.exists(pptx_file):
+                return "<h3 style='color:red;'>⚠️ PPT file could not be created. Please try again.</h3>"
+
             return send_file(pptx_file, as_attachment=True)
+
         except Exception as e:
-            return f"<h3 style='color:red;'>Error: {e}</h3>"
+            if "ConnectionError" in str(e) or "Timeout" in str(e):
+                error_msg = "🌐 Network issue! Please check your internet and try again."
+            elif "API" in str(e):
+                error_msg = "🔑 API key error — check your .env configuration."
+            else:
+                error_msg = f"❌ Unexpected Error: {str(e)}"
+
+            # Return same glass UI + error message box
+            error_html = html + f"""
+            <div style='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+                        background:rgba(255,50,50,0.2);padding:15px 30px;border-radius:15px;
+                        color:#ff8080;font-weight:bold;backdrop-filter:blur(10px);
+                        border:1px solid rgba(255,255,255,0.2);'>
+                {error_msg}
+            </div>"""
+            return render_template_string(error_html)
 
     return render_template_string(html)
 
 
+@app.route("/done")
+def done():
+    return "ok"
+
+
 if __name__ == "__main__":
     app.run(debug=True)
+
